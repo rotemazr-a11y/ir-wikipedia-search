@@ -1,244 +1,280 @@
-# Wikipedia Search Engine - Information Retrieval Project
+# ir-wikipedia-search
+Final project – information retrieval search engine over English Wikipedia (Ben-Gurion University IR course)
 
-Course: 372-1-4406 Information Retrieval
-Semester: Winter 2024-2025
+# Wikipedia Search Engine – IR Course Final Project
 
-## Project Overview
+Final project for the Information Retrieval course – building a search engine over the **English Wikipedia**.
 
-This project implements a search engine for English Wikipedia as part of the IR course final project. The search engine will support multiple ranking methods including TF-IDF, binary ranking, PageRank, and page view ranking.
+The goal is to implement an end-to-end IR system that:
 
-## Project Structure
+- Indexes the full English Wikipedia dump (body, titles, anchors, links, pageviews).
+- Exposes several HTTP endpoints (via Flask) to serve queries.
+- Implements and combines multiple retrieval signals (tf-idf, titles, anchors, PageRank, pageviews).
+- Is deployable on Google Cloud Platform (GCP).
+- Is evaluated using a provided set of training queries (`queries_train.json`).
 
-```
+---
+
+## 1. Project Overview
+
+This project consists of two main parts:
+
+1. **Backend (IR engine)**
+   - Processes the Wikipedia dump offline.
+   - Builds inverted indexes for:
+     - Article body
+     - Titles
+     - Anchor texts
+   - Builds a link graph and computes **PageRank**.
+   - Aggregates **pageviews** (August 2021).
+   - Implements the ranking logic: scoring, combining signals, returning ranked lists of documents.
+
+2. **Frontend (Flask HTTP API)**
+   - Exposes a set of endpoints that the course staff's evaluation scripts will call.
+   - For a given query or list of document IDs, it calls the backend logic and returns JSON.
+
+The system must be able to handle **queries over the entire English Wikipedia**, return results within the required time constraints, and achieve a reasonable retrieval quality on a hidden test set.
+
+---
+
+## 2. Repository Structure
+
+```text
 .
-├── text_processing.py      # Text processing module (tokenization, normalization, stop words)
-├── inverted_index_gcp.py   # Inverted index implementation (provided by staff)
-├── search_frontend.py      # Flask frontend for search engine (to be implemented)
-├── run_frontend_in_colab.ipynb  # Colab notebook for testing
-├── run_frontend_in_gcp.sh  # GCP deployment script
-├── startup_script_gcp.sh   # GCP instance setup script
-└── queries_train.json      # Training queries for evaluation
+├── backend/
+│   ├── __init__.py
+│   ├── text_processing.py      # ✅ Text tokenization, normalization, stop words
+│   ├── inverted_index_gcp.py   # Provided helper for managing inverted indexes on GCP
+│   ├── index_builder.py        # Index construction utilities
+│   └── search_logic.py         # (TODO) main search / ranking logic
+│
+├── frontend/
+│   ├── __init__.py
+│   └── search_frontend.py      # Provided Flask app with required endpoints
+│
+├── data/
+│   ├── queries_train.json      # Provided train queries + relevance labels
+│   └── ...                     # (You) small metadata files, local configs, etc.
+│
+├── scripts/
+│   ├── startup_script_gcp.sh   # Provided startup script for GCP VM
+│   └── run_frontend_in_gcp.sh  # Provided helper to run frontend on GCP
+│
+├── notebooks/
+│   └── run_frontend_in_colab.ipynb   # Provided Colab notebook for local/remote testing
+│
+├── README.md
+├── requirements.txt
+├── .gitignore
+└── LICENSE
 ```
 
-## Implementation Progress
+---
 
-### Phase 1: Text Processing ✅ COMPLETED
+## 3. Implementation Progress
 
-The text processing module (`text_processing.py`) implements the following components:
+### ✅ Phase 1: Text Processing (COMPLETED)
 
-#### 1. **Tokenization**
-- Converts input text into individual tokens (words)
-- Uses regex pattern matching (`\b\w+\b`) to extract alphanumeric sequences
-- Handles:
-  - Standard words
-  - Numbers
-  - Hyphenated words (split into separate tokens)
-  - Contractions and apostrophes
+**Module**: `backend/text_processing.py`
 
-**Function**: `tokenize(text)`
+Implemented complete text processing pipeline following IR best practices:
 
-**Example**:
-```python
->>> tokenize("Hello, world! This is a test.")
-['Hello', 'world', 'This', 'is', 'a', 'test']
-```
+#### Components
 
-#### 2. **Normalization**
-- Converts all text to lowercase for case-insensitive matching
-- Ensures "Bank" and "bank" are treated identically
-- Critical for query-document matching
+1. **Tokenization**
+   - Uses regex pattern for word boundary detection
+   - Handles: words, numbers, hyphenated terms, contractions
+   - Function: `tokenize(text)` returns list of tokens
 
-**Function**: `normalize(text)`
+2. **Normalization**
+   - Converts text to lowercase for case-insensitive matching
+   - Ensures "Bank" and "bank" are treated identically
+   - Function: `normalize(text)` returns lowercase string
 
-**Example**:
-```python
->>> normalize("Hello WORLD")
-'hello world'
-```
+3. **Stop Words Removal**
+   - 150+ common English stop words (based on NLTK/Lucene)
+   - Implements Zipf's law: removes high-frequency, low-discriminative words
+   - Improves index size and retrieval speed
+   - Function: `remove_stopwords(tokens)` returns filtered token list
 
-#### 3. **Stop Word Removal**
-- Removes common English stop words (e.g., "the", "is", "at", "of")
-- Based on Zipf's law: high-frequency words with low discriminative power
-- Uses a standard stop word list (similar to NLTK/Lucene)
-- Improves:
-  - Index efficiency (smaller index size)
-  - Query processing speed
-  - Retrieval precision
+4. **Complete Pipeline**
+   - Single function for end-to-end processing
+   - Used for both documents and queries
+   - Function: `tokenize_and_process(text, remove_stops=True)` returns processed tokens
 
-**Function**: `remove_stopwords(tokens, stopwords=None)`
+5. **Term Frequency Counting**
+   - Returns Counter object with term frequencies
+   - Essential for TF-IDF calculation
+   - Function: `get_term_counts(tokens)` returns Counter object
 
-**Stop words included**: 150+ common English words including articles, prepositions, pronouns, and common verbs
-
-**Example**:
-```python
->>> remove_stopwords(['this', 'is', 'a', 'test', 'document'])
-['test', 'document']
-```
-
-#### 4. **Complete Processing Pipeline**
-- Combines all processing steps in correct order:
-  1. Normalization (lowercase)
-  2. Tokenization (split into words)
-  3. Stop word removal (optional)
-
-**Function**: `tokenize_and_process(text, remove_stops=True, custom_stopwords=None)`
-
-**Example**:
-```python
->>> tokenize_and_process("The quick brown fox jumps over the lazy dog")
-['quick', 'brown', 'fox', 'jumps', 'lazy', 'dog']
-```
-
-#### 5. **Term Frequency Counting**
-- Counts occurrences of each term in a token list
-- Essential for TF-IDF calculation
-- Returns a Counter object for efficient frequency queries
-
-**Function**: `get_term_counts(tokens)`
-
-**Example**:
-```python
->>> tokens = ['apple', 'banana', 'apple', 'cherry']
->>> get_term_counts(tokens)
-Counter({'apple': 2, 'banana': 1, 'cherry': 1})
-```
-
-### Key Design Decisions
-
-1. **No Stemming**: Following project requirements, stemming is NOT implemented for the basic search methods (search_body, search_title, search_anchor)
-
-2. **Regex-based Tokenization**: Uses `\b\w+\b` pattern which:
-   - Captures word boundaries accurately
-   - Handles Unicode characters
-   - Efficient for large-scale processing
-
-3. **Configurable Stop Words**: Allows custom stop word lists while providing a comprehensive default set
-
-4. **Modular Design**: Each function serves a single purpose, making it easy to:
-   - Test individual components
-   - Modify behavior as needed
-   - Reuse in different contexts
-
-## Usage Examples
-
-### Processing a Document
+#### Usage Examples
 
 ```python
-from text_processing import tokenize_and_process, get_term_counts
+from backend.text_processing import tokenize_and_process, get_term_counts
 
-# Example document
-doc_text = "Information Retrieval is the science of searching for information in documents."
-
-# Process the document
+# Process a document
+doc_text = "Information Retrieval is the science of searching for information."
 tokens = tokenize_and_process(doc_text)
-print("Tokens:", tokens)
-# Output: ['information', 'retrieval', 'science', 'searching', 'information', 'documents']
+# Output: ['information', 'retrieval', 'science', 'searching', 'information']
 
 # Get term frequencies
 term_freq = get_term_counts(tokens)
-print("Term frequencies:", term_freq)
-# Output: Counter({'information': 2, 'retrieval': 1, 'science': 1, 'searching': 1, 'documents': 1})
-```
+# Output: Counter({'information': 2, 'retrieval': 1, 'science': 1, 'searching': 1})
 
-### Processing a Query
-
-```python
-from text_processing import tokenize_and_process
-
-# Example query
+# Process a query
 query = "How to search for information?"
-
-# Process the query
 query_tokens = tokenize_and_process(query)
-print("Query tokens:", query_tokens)
 # Output: ['search', 'information']
 ```
 
-### Using with Inverted Index
+#### Testing
 
-```python
-from inverted_index_gcp import InvertedIndex
-from text_processing import tokenize_and_process
-
-# Create inverted index
-docs = {
-    1: tokenize_and_process("The quick brown fox"),
-    2: tokenize_and_process("The lazy dog sleeps"),
-    3: tokenize_and_process("Quick brown dogs and foxes")
-}
-
-index = InvertedIndex(docs)
-```
-
-## Testing
-
-Run the text processing module directly to see example outputs:
-
+Run the module directly to see demonstrations:
 ```bash
-python text_processing.py
+python backend/text_processing.py
 ```
 
-This will demonstrate:
-- Normalization
-- Tokenization
-- Stop word removal
-- Term frequency counting
-- Query processing
+#### Design Decisions
 
-## Next Steps
+- **No Stemming**: Following project requirements (not used in search_body, search_title, search_anchor)
+- **Regex-based**: Efficient for large-scale processing
+- **Modular**: Each function serves single purpose for easy testing
+- **Configurable**: Supports custom stop word lists
 
-### Phase 2: Index Building (Pending)
-- [ ] Build inverted indices for Wikipedia corpus:
-  - Body index (for TF-IDF search)
-  - Title index (for binary ranking)
-  - Anchor text index (for link-based ranking)
-- [ ] Calculate and store document frequencies (DF)
-- [ ] Calculate and store term frequencies (TF)
+---
+
+### 🔨 Phase 2: Index Building (IN PROGRESS)
+
+**Goal**: Build inverted indices for body, title, and anchor text
+
+**Tasks**:
+- [ ] Process Wikipedia dump and build indices
+- [ ] Calculate document frequencies (DF)
+- [ ] Calculate term frequencies (TF)
+- [ ] Store indices in GCP bucket
 - [ ] Implement posting list compression
 
-### Phase 3: Ranking Implementation (Pending)
-- [ ] Implement TF-IDF with cosine similarity (search_body)
-- [ ] Implement binary ranking for titles (search_title)
-- [ ] Implement binary ranking for anchors (search_anchor)
-- [ ] Implement PageRank ranking (get_pagerank)
-- [ ] Implement page view ranking (get_pageview)
+---
 
-### Phase 4: Search Engine Integration (Pending)
-- [ ] Implement the main search method (combining multiple signals)
-- [ ] Optimize for speed (<35 seconds per query)
-- [ ] Test on training queries
+### 📊 Phase 3: Ranking Methods (PENDING)
+
+**Required endpoints** (from `frontend/search_frontend.py`):
+
+1. **`/search`** - Best combined ranking (your design)
+2. **`/search_body`** - TF-IDF cosine similarity on body
+3. **`/search_title`** - Binary ranking on titles
+4. **`/search_anchor`** - Binary ranking on anchor text
+5. **`/get_pagerank`** - Return PageRank scores
+6. **`/get_pageview`** - Return page view counts
+
+---
+
+### 🚀 Phase 4: Deployment (PENDING)
+
+- [ ] Test locally with Colab notebook
 - [ ] Deploy to GCP
+- [ ] Optimize for <35 second query time
+- [ ] Test with training queries
 
-### Phase 5: Evaluation & Optimization (Pending)
+---
+
+### 📈 Phase 5: Evaluation (PENDING)
+
 - [ ] Measure Precision@5 and F1@30
 - [ ] Measure average retrieval time
-- [ ] Optimize query processing
-- [ ] Experiment with query expansion, re-ranking, etc.
+- [ ] Experiment with improvements
+- [ ] Document findings in report
 
-## Requirements Met
+---
 
-✅ Text tokenization
-✅ Normalization (lowercasing)
-✅ Stop word removal
-✅ Modular, clean code structure
-✅ Comprehensive documentation
+## 4. Requirements
 
-## Technical Details
+### Minimum Requirements
 
-**Language**: Python 3.x
-**Key Libraries**:
-- `re` - Regular expressions for tokenization
-- `collections.Counter` - Efficient term frequency counting
-- `pickle` - Serialization (from inverted_index_gcp.py)
-- `flask` - Web framework (from search_frontend.py)
+- ✅ Tokenization, normalization, stop word removal
+- ⬜ Functional search engine over entire Wikipedia
+- ⬜ Testable via URL (testing period: Jan 28-30, 2025)
+- ⬜ Query time <35 seconds
+- ⬜ Average Precision@10 >0.1
+- ⬜ No external API calls
+- ⬜ Clean code repository
+- ⬜ Report (4 pages max)
 
-## Notes
+### Full Requirements
 
-- The tokenizer follows standard IR practices as taught in course lectures
-- Stop word list is based on common IR libraries (NLTK, Lucene)
-- No external API calls or services used (as per project requirements)
-- All processing is done locally for maximum control and efficiency
+- ⬜ Support 5 ranking methods (10 points)
+- ⬜ Efficiency: <1 second preferred (7 points)
+- ⬜ Results quality: Precision@5 & F1@30 (18 points)
+- ⬜ Experimentation & evaluation (15 points)
+- ⬜ Reporting & presentation (4 points)
 
-## License
+---
 
-Academic project for Information Retrieval course (372-1-4406)
+## 5. Getting Started
+
+### Installation
+
+```bash
+# Clone the repository
+git clone https://github.com/rotemazr-a11y/ir-wikipedia-search.git
+cd ir-wikipedia-search
+
+# Install dependencies
+pip install -r requirements.txt
+```
+
+### Testing Text Processing
+
+```bash
+# Test tokenization module
+python backend/text_processing.py
+
+# Example output:
+# Original: "The quick brown fox jumps over the lazy dog"
+# Tokens: ['quick', 'brown', 'fox', 'jumps', 'lazy', 'dog']
+```
+
+### Running Frontend Locally
+
+```bash
+# Start Flask server
+python frontend/search_frontend.py
+
+# Server will run on http://localhost:8080
+```
+
+---
+
+## 6. Technical Stack
+
+- **Language**: Python 3.x
+- **Web Framework**: Flask
+- **Cloud Platform**: Google Cloud Platform (GCP)
+- **Storage**: Google Cloud Storage buckets
+- **Key Libraries**:
+  - `re` - Regular expressions for tokenization
+  - `collections` - Counter for term frequencies
+  - `pickle` - Index serialization
+  - `google-cloud-storage` - GCP integration
+  - `flask` - HTTP API
+
+---
+
+## 7. Course Information
+
+**Course**: 372-1-4406 Information Retrieval
+**Semester**: Winter 2024-2025
+**Institution**: Ben-Gurion University
+**Project Weight**: 25% of final grade (optional, can only improve grade)
+
+---
+
+## 8. License
+
+MIT License - Academic project for Information Retrieval course
+
+---
+
+## 9. Contributors
+
+See commit history for contributors and contributions.
