@@ -1,69 +1,52 @@
-"""
-Pre-processing utilities for text tokenization and normalization.
-Compatible with both local and Spark environments.
-"""
-
-# CRITICAL FIX: Must be FIRST, before any other imports
-import sys
-try:
-    import regex
-    if not hasattr(regex, 'Pattern'):
-        regex.Pattern = type(regex.compile(''))
-except ImportError:
-    pass
 
 import re
 import nltk
+from collections import Counter
 from nltk.corpus import stopwords
 from nltk.stem.porter import PorterStemmer
 
-# Initialize stemmer and stopwords
-porter_stemmer = PorterStemmer()
+# 1. THE ASSIGNMENT 1 REGEX
+RE_WORD = re.compile(r"[\#\w](['\w-]*\w)?", re.UNICODE | re.VERBOSE)
 
-# Handle stopwords loading gracefully
-try:
-    english_stopwords = frozenset(stopwords.words('english'))
-except LookupError:
-    # If stopwords not downloaded, use a minimal set
-    english_stopwords = frozenset([
-        'the', 'a', 'an', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for',
-        'of', 'with', 'as', 'by', 'is', 'was', 'are', 'were', 'been', 'be',
-        'have', 'has', 'had', 'do', 'does', 'did', 'will', 'would', 'could',
-        'should', 'may', 'might', 'must', 'can', 'this', 'that', 'these', 'those'
-    ])
+def _get_stop_words():
+    """Returns a hardcoded list of NLTK stopwords to avoid network/permission issues in Spark Workers."""
+    return frozenset(['i', 'me', 'my', 'myself', 'we', 'our', 'ours', 'ourselves', 'you', "you're", "you've", "you'll", "you'd", 'your', 'yours', 'yourself', 'yourselves', 'he', 'him', 'his', 'himself', 'she', "she's", 'her', 'hers', 'herself', 'it', "it's", 'its', 'itself', 'they', 'them', 'their', 'theirs', 'themselves', 'what', 'which', 'who', 'whom', 'this', 'that', "that'll", 'these', 'those', 'am', 'is', 'are', 'was', 'were', 'be', 'been', 'being', 'have', 'has', 'had', 'having', 'do', 'does', 'did', 'doing', 'a', 'an', 'the', 'and', 'but', 'if', 'or', 'because', 'as', 'until', 'while', 'of', 'at', 'by', 'for', 'with', 'about', 'against', 'between', 'into', 'through', 'during', 'before', 'after', 'above', 'below', 'to', 'from', 'up', 'down', 'in', 'out', 'on', 'off', 'over', 'under', 'again', 'further', 'then', 'once', 'here', 'there', 'when', 'where', 'why', 'how', 'all', 'any', 'both', 'each', 'few', 'more', 'most', 'other', 'some', 'such', 'no', 'nor', 'not', 'only', 'own', 'same', 'so', 'than', 'too', 'very', 's', 't', 'can', 'will', 'just', 'don', "don't", 'should', "should've", 'now', 'd', 'll', 'm', 'o', 're', 've', 'y', 'ain', 'aren', "aren't", 'couldn', "couldn't", 'didn', "didn't", 'doesn', "doesn't", 'hadn', "hadn't", 'hasn', "hasn't", 'haven', "haven't", 'isn', "isn't", 'ma', 'mightn', "mightn't", 'mustn', "mustn't", 'needn', "needn't", 'shan', "shan't", 'shouldn', "shouldn't", 'wasn', "wasn't", 'weren', "weren't", 'won', "won't", 'wouldn', "wouldn't"])
+ENGLISH_STOP_WORDS = _get_stop_words()
+_stemmer = PorterStemmer()
 
-# Regex patterns for tokenization
-RE_WORD = re.compile(r"""[\w']+""", re.UNICODE)
-NUM_REGEX = re.compile(r'^\d+$')
+def _get_stemmer():
+    global _stemmer
+    if _stemmer is None:
+        _stemmer = PorterStemmer()
+    return _stemmer
 
-
-def tokenize_and_process(text, remove_stops=True, stem=False):
-    """
-    Tokenize and optionally remove stopwords and apply stemming.
-    
-    Args:
-        text (str): Input text to process
-        remove_stops (bool): Remove stopwords if True
-        stem (bool): Apply Porter stemming if True
-        
-    Returns:
-        list: List of processed tokens
-    """
+def tokenize_and_process(text, remove_stops=True, stem=True):
     if not text:
         return []
-    
-    # Convert to lowercase and tokenize
-    tokens = [token.lower() for token in RE_WORD.findall(text)]
-    
-    # Remove pure numeric tokens
-    tokens = [token for token in tokens if not NUM_REGEX.match(token)]
-    
-    # Remove stopwords if requested
+
+    # 1. Tokenize (Assignment 1 Regex)
+    tokens = [token.group() for token in RE_WORD.finditer(text.lower())]
+
+    # 2. Stopword Removal
     if remove_stops:
-        tokens = [token for token in tokens if token not in english_stopwords]
+        tokens = [t for t in tokens if t not in ENGLISH_STOP_WORDS]
+
+    # 3. Stemming & Cleanup
+    stemmer = _get_stemmer()
+    processed_tokens = []
     
-    # Apply stemming if requested
-    if stem:
-        tokens = [porter_stemmer.stem(token) for token in tokens]
-    
-    return tokens
+    for t in tokens:
+        # Step 3a: Stem if requested
+        if stem:
+            t = stemmer.stem(t)
+        
+        # Step 3b: Strip trailing apostrophes (Fixes "user's" -> "user'" -> "user")
+        t = t.rstrip("'")
+        
+        if t: # Ensure we don't add empty strings
+            processed_tokens.append(t)
+
+    return processed_tokens
+
+def get_term_counts(tokens):
+    return Counter(tokens)

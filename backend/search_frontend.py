@@ -86,7 +86,7 @@ def search_body():
         
         engine = get_engine()
         # Body index requires stemmed tokens
-        query_tokens = tokenize_and_process(raw_query, remove_stops=True, stem=True)
+        query_tokens = tokenize_and_process(raw_query, remove_stops=True, stem=False)
         
         # Retrieve BM25 scores from backend
         scores = engine.search_body_bm25(query_tokens)
@@ -101,7 +101,16 @@ def search_body():
         logger.error(f"[BODY] Error: {e}")
         return jsonify([])
 
-
+@app.route("/get_pagerank", methods=['POST'])
+def get_pagerank():
+    try:
+        data = request.get_json()
+        engine = get_engine()
+        response = [float(engine.pagerank.get(int(doc_id), 0.0)) for doc_id in data]
+        return jsonify(response)
+    except Exception as e:
+        return jsonify([])
+    
 @app.route("/search_title")
 def search_title():
     """Search using Title index only (No stemming)."""
