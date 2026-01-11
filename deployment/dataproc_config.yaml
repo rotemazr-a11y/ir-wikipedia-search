@@ -1,0 +1,59 @@
+# GCP Dataproc Cluster Configuration for Wikipedia Indexing
+
+clusterName: wiki-indexing-cluster
+region: us-central1
+
+config:
+  # Master node configuration
+  masterConfig:
+    numInstances: 1
+    machineTypeUri: n1-highmem-8  # 8 vCPUs, 52 GB RAM
+    diskConfig:
+      bootDiskType: pd-standard
+      bootDiskSizeGb: 500
+      numLocalSsds: 0
+
+  # Worker node configuration
+  workerConfig:
+    numInstances: 200  # Adjust based on dataset size
+    machineTypeUri: n1-standard-4  # 4 vCPUs, 15 GB RAM
+    diskConfig:
+      bootDiskType: pd-standard
+      bootDiskSizeGb: 100
+      numLocalSsds: 0
+
+  # Secondary (preemptible) workers for cost savings
+  secondaryWorkerConfig:
+    numInstances: 50  # Optional: adds capacity at lower cost
+    machineTypeUri: n1-standard-4
+    diskConfig:
+      bootDiskType: pd-standard
+      bootDiskSizeGb: 100
+    isPreemptible: true
+
+  # Software configuration
+  softwareConfig:
+    imageVersion: 2.0-debian10  # Includes Python 3.8, Spark 3.1
+    properties:
+      spark:spark.executor.memory: 8g
+      spark:spark.executor.cores: 4
+      spark:spark.driver.memory: 8g
+      spark:spark.dynamicAllocation.enabled: true
+      spark:spark.shuffle.service.enabled: true
+
+  # Initialization actions (run on cluster startup)
+  initializationActions:
+    - executableFile: gs://your-bucket/scripts/install_dependencies.sh
+      executionTimeout: 300s
+
+  # GCS staging bucket
+  gceClusterConfig:
+    zoneUri: us-central1-a
+    serviceAccount: your-service-account@project.iam.gserviceaccount.com
+    serviceAccountScopes:
+      - https://www.googleapis.com/auth/cloud-platform
+
+  # Lifecycle (auto-delete after job completes)
+  lifecycleConfig:
+    idleDeleteTtl: 3600s  # Delete after 1 hour of inactivity
+    autoDeleteTime: ""    # Or set specific time

@@ -1,0 +1,36 @@
+# Wikipedia Search Engine - Python Dependencies
+
+# Core Data Processing
+numpy>=1.21.0
+pandas>=1.3.0
+
+# Natural Language Processing
+nltk>=3.6.0
+
+# Visualization
+matplotlib>=3.4.0
+
+# Google Cloud Platform
+google-cloud-storage>=2.0.0
+
+# PySpark (for distributed indexing)
+pyspark>=3.1.0
+
+# Flask (for query service)
+Flask>=2.0.0
+flask-cors>=3.0.10
+
+# Testing
+pytest>=7.0.0
+pytest-cov>=3.0.0
+
+# Utilities
+tqdm>=4.62.0
+
+# Optional: Jupyter for notebooks
+jupyter>=1.0.0
+ipykernel>=6.0.0
+
+# Optional: Development tools
+black>=21.0  # Code formatter
+flake8>=4.0.0  # Linter

@@ -1,0 +1,91 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Virtual Environment
+venv/
+env/
+ENV/
+.venv
+
+# IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Jupyter Notebook
+.ipynb_checkpoints
+*.ipynb_checkpoints/
+
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+
+# Data files (large)
+*.parquet
+*.pkl
+*.pickle
+*.bin
+*.json.gz
+
+# Indices (generated)
+*_indices/
+indices/
+champion_lists/
+body_indices/
+title_index/
+anchor_index/
+test_indices/
+local_indices/
+final_integrity_test/
+test_index_*/
+test_merge_*/
+test_e2e_*/
+test_full_system_*/
+
+# Logs
+*.log
+logs/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# GCP credentials
+*.json
+!queries_train.json
+!package.json
+
+# Temporary files
+*.tmp
+temp/
+tmp/
+
+# Documentation builds
+docs/_build/
+site/
+
+# Large PDFs (optional - uncomment if you want to exclude)
+# *.pdf

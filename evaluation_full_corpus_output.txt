@@ -1,0 +1,37 @@
+================================================================================
+FULL CORPUS EVALUATION (Running Locally with GCS Indices)
+================================================================================
+
+Loading body index from gs://206969750_bucket/postings_gcp/...
+Traceback (most recent call last):
+  File "/Users/tomerfilo/Library/Mobile Documents/com~apple~CloudDocs/לימודים- שנה ג/סמסטר א/אחזור מידע/ir_proj_20251213 2/scripts/evaluate_full_corpus_local.py", line 34, in <module>
+    BODY_INDEX = InvertedIndex.read_index(INDEX_DIR, 'index', GCS_BUCKET)
+  File "/Users/tomerfilo/Library/Mobile Documents/com~apple~CloudDocs/לימודים- שנה ג/סמסטר א/אחזור מידע/ir_proj_20251213 2/backend/inverted_index_gcp.py", line 225, in read_index
+    bucket = None if bucket_name is None else get_bucket(bucket_name)
+                                              ~~~~~~~~~~^^^^^^^^^^^^^
+  File "/Users/tomerfilo/Library/Mobile Documents/com~apple~CloudDocs/לימודים- שנה ג/סמסטר א/אחזור מידע/ir_proj_20251213 2/backend/inverted_index_gcp.py", line 18, in get_bucket
+    return storage.Client(PROJECT_ID).bucket(bucket_name)
+           ~~~~~~~~~~~~~~^^^^^^^^^^^^
+  File "/opt/homebrew/lib/python3.14/site-packages/google/cloud/storage/client.py", line 265, in __init__
+    super(Client, self).__init__(
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~^
+        project=project,
+        ^^^^^^^^^^^^^^^^
+    ...<2 lines>...
+        _http=_http,
+        ^^^^^^^^^^^^
+    )
+    ^
+  File "/opt/homebrew/lib/python3.14/site-packages/google/cloud/client/__init__.py", line 340, in __init__
+    Client.__init__(
+    ~~~~~~~~~~~~~~~^
+        self, credentials=credentials, client_options=client_options, _http=_http
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    )
+    ^
+  File "/opt/homebrew/lib/python3.14/site-packages/google/cloud/client/__init__.py", line 197, in __init__
+    credentials, _ = google.auth.default(scopes=scopes)
+                     ~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^
+  File "/opt/homebrew/lib/python3.14/site-packages/google/auth/_default.py", line 739, in default
+    raise exceptions.DefaultCredentialsError(_CLOUD_SDK_MISSING_CREDENTIALS)
+google.auth.exceptions.DefaultCredentialsError: Your default credentials were not found. To set up Application Default Credentials, see https://cloud.google.com/docs/authentication/external/set-up-adc for more information.
