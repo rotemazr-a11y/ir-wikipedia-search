@@ -1,6 +1,6 @@
 # IR Wikipedia Search Engine - Next Session Prompt
 
-> **Last Updated**: January 18, 2026, ~18:30 UTC
+> **Last Updated**: January 18, 2026, ~19:40 UTC
 > **Copy this entire file into a new Claude session to continue**
 
 ---
@@ -11,9 +11,14 @@ I'm building a **Wikipedia search engine** for my IR course final project. The t
 
 ### Current Status
 - ✅ All code complete and tested locally
-- 🔄 **Indexing job running on GCP** (Job ID: `94fb8087280740b2bf8310ead1155444`)
+- ✅ **GCS compatibility fix applied** (replaced `blob.open()` with compatible API)
+- 🔄 **Indexing job running on GCP** (Job ID: `2ec7b84b31fe438aa779a4402c6e81bb`)
 - ⏳ After indexing: run 3 more jobs (doc_metadata, pagerank, pageviews)
 - ⏳ Then deploy frontend to GCP VM
+
+### Current Cluster (with Component Gateway)
+- **Cluster**: `ir-cluster` (3 workers × n1-standard-4)
+- **Web UI**: https://console.cloud.google.com/dataproc/clusters/ir-cluster?region=us-central1&project=durable-tracer-479509-q2
 
 ---
 
@@ -70,17 +75,20 @@ https://github.com/RotemAzriel/wikipedia-search-engine
 ### Indexing Job
 ```bash
 # Check if indexing is complete
-gcloud dataproc jobs describe 94fb8087280740b2bf8310ead1155444 --region=us-central1 --format="yaml(status)"
+gcloud dataproc jobs describe 2ec7b84b31fe438aa779a4402c6e81bb --region=us-central1 --format="yaml(status)"
 
 # Expected output when done:
 # status:
 #   state: DONE
 ```
 
+### Cluster Info
+- **Cluster**: `ir-cluster` (3 workers × n1-standard-4, with component gateway)
+- **Web UI**: Available via GCP Console → Dataproc → Clusters → ir-cluster → Web Interfaces
+
 ### Expected Duration
-- Started: Jan 18, 2026 ~14:20 UTC
-- Estimated completion: Jan 18, 2026 ~17:00-18:00 UTC (3-4 hours total)
-- Map phase: ~155/200 partitions complete as of last check
+- Started: Jan 18, 2026 ~19:38 UTC
+- Estimated completion: Jan 18, 2026 ~21:00-21:30 UTC (~1.5-2 hours with 3 workers)
 
 ### Check Output in GCS
 ```bash
@@ -238,10 +246,11 @@ curl "http://$INSTANCE_IP:8080/search?query=machine+learning"
 
 | Error | Cause | Solution |
 |-------|-------|----------|
-| `NLTK Permission denied` | NLTK tries to write to read-only path | Fixed - hardcoded stopwords in pre_processing.py |
-| `Job stuck reading Parquet` | count() caused full scan | Fixed - removed count() call |
-| `OOM during shuffle` | Too much data in memory | Fixed - SPIMI with memory-bounded blocks |
+| `NLTK Permission denied` | NLTK tries to write to read-only path | ✅ Fixed - hardcoded stopwords in pre_processing.py |
+| `Job stuck reading Parquet` | count() caused full scan | ✅ Fixed - removed count() call |
+| `OOM during shuffle` | Too much data in memory | ✅ Fixed - SPIMI with memory-bounded blocks |
 | Memory warnings (BlockManager) | Normal - data spilling to disk | Not critical, job continues |
+| **`blob.open()` AttributeError** | Old GCS library on Dataproc | ✅ Fixed - replaced with `upload_from_file()` and `download_as_bytes()` in inverted_index_gcp.py |
 
 ### Post-Indexing Job Errors
 
@@ -279,7 +288,7 @@ gsutil ls gs://bucket_207916263/pageviews/pageviews.pkl
 
 ### Monitor Running Job
 ```bash
-JOB_ID="94fb8087280740b2bf8310ead1155444"  # Replace with current job
+JOB_ID="2ec7b84b31fe438aa779a4402c6e81bb"  # Current job
 
 # Check status
 gcloud dataproc jobs describe $JOB_ID --region=us-central1 --format="yaml(status)"

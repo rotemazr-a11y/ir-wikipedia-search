@@ -5,6 +5,7 @@ from itertools import islice, count, groupby
 import pandas as pd
 import os
 import re
+import io
 from operator import itemgetter
 from time import time
 from pathlib import Path
@@ -15,12 +16,78 @@ from contextlib import closing
 
 PROJECT_ID = 'YOUR-PROJECT-ID-HERE'
 def get_bucket(bucket_name):
-    return storage.Client(PROJECT_ID).bucket(bucket_name)
+    return storage.Client().bucket(bucket_name)
+
+
+class GCSBinaryWriter:
+    """Wrapper to write binary data to GCS using upload_from_string (compatible with older gcs library)."""
+    def __init__(self, bucket, blob_path):
+        self._bucket = bucket
+        self._blob_path = blob_path
+        self._buffer = io.BytesIO()
+        self._blob = bucket.blob(blob_path)
+        self.name = blob_path
+        
+    def write(self, data):
+        return self._buffer.write(data)
+    
+    def tell(self):
+        return self._buffer.tell()
+    
+    def seek(self, pos):
+        return self._buffer.seek(pos)
+    
+    def close(self):
+        # Upload the buffer contents to GCS
+        self._buffer.seek(0)
+        self._blob.upload_from_file(self._buffer)
+        self._buffer.close()
+
+
+class GCSBinaryReader:
+    """Wrapper to read binary data from GCS (compatible with older gcs library)."""
+    def __init__(self, bucket, blob_path):
+        self._bucket = bucket
+        self._blob_path = blob_path
+        self._blob = bucket.blob(blob_path)
+        # Download full blob content - use download_as_string for max compatibility
+        # (returns bytes despite the name, available since earliest versions)
+        try:
+            self._data = self._blob.download_as_bytes()
+        except AttributeError:
+            # Fallback for very old versions
+            self._data = self._blob.download_as_string()
+        self._pos = 0
+        self.name = blob_path
+        
+    def read(self, n=-1):
+        if n < 0:
+            result = self._data[self._pos:]
+            self._pos = len(self._data)
+        else:
+            result = self._data[self._pos:self._pos + n]
+            self._pos += len(result)
+        return result
+    
+    def seek(self, pos):
+        self._pos = pos
+        return self._pos
+    
+    def tell(self):
+        return self._pos
+    
+    def close(self):
+        pass  # Nothing to close
+
 
 def _open(path, mode, bucket=None):
     if bucket is None:
         return open(path, mode)
-    return bucket.blob(path).open(mode)
+    # Use wrapper classes for GCS compatibility
+    if 'w' in mode:
+        return GCSBinaryWriter(bucket, path)
+    else:
+        return GCSBinaryReader(bucket, path)
 
 # Let's start with a small block size of 30 bytes just to test things out. 
 BLOCK_SIZE = 1999998
