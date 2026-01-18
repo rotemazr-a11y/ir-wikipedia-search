@@ -180,6 +180,7 @@ Open `frontend/run_frontend_in_colab.ipynb` and follow the instructions.
 ## Authors
 
 - Student ID: 207916263
+- GitHub: https://github.com/RotemAzriel/wikipedia-search-engine
 
 ## License
 
