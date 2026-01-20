@@ -50,6 +50,11 @@ gcloud compute scp ./search_frontend.py \
   ${GOOGLE_ACCOUNT_NAME}@${INSTANCE_NAME}:/home/${GOOGLE_ACCOUNT_NAME} \
   --zone ${ZONE}
 
+# Also copy the inverted_index_gcp.py (needed by search_frontend.py)
+gcloud compute scp ./inverted_index_gcp.py \
+  ${GOOGLE_ACCOUNT_NAME}@${INSTANCE_NAME}:/home/${GOOGLE_ACCOUNT_NAME} \
+  --zone ${ZONE}
+
 # 5. SSH to your VM and start the app
 gcloud compute ssh $GOOGLE_ACCOUNT_NAME@$INSTANCE_NAME --zone $ZONE
 

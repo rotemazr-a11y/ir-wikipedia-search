@@ -295,15 +295,21 @@ def save_pagerank_dict(
     
     # Save to file
     if bucket_name:
-        # Save to GCS
+        # Save to GCS using upload_from_file for compatibility
         from google.cloud import storage
+        import io
         
         client = storage.Client()
         bucket = client.bucket(bucket_name)
         blob = bucket.blob(output_path)
         
-        with blob.open('wb') as f:
-            pickle.dump(pagerank_dict, f)
+        # Serialize to bytes buffer first
+        buffer = io.BytesIO()
+        pickle.dump(pagerank_dict, buffer)
+        buffer.seek(0)
+        
+        # Upload from buffer
+        blob.upload_from_file(buffer, content_type='application/octet-stream')
         
         logger.info(f"Saved PageRank to gs://{bucket_name}/{output_path}")
     else:
@@ -328,12 +334,16 @@ def main():
     
     args = parser.parse_args()
     
-    # Initialize Spark
+    # Initialize Spark with increased memory for large graph
     spark = SparkSession.builder \
         .appName("WikipediaPageRank") \
-        .config("spark.executor.memory", "8g") \
-        .config("spark.driver.memory", "8g") \
-        .config("spark.sql.shuffle.partitions", "200") \
+        .config("spark.executor.memory", "10g") \
+        .config("spark.driver.memory", "12g") \
+        .config("spark.executor.memoryOverhead", "2g") \
+        .config("spark.driver.memoryOverhead", "2g") \
+        .config("spark.sql.shuffle.partitions", "400") \
+        .config("spark.memory.fraction", "0.8") \
+        .config("spark.sql.autoBroadcastJoinThreshold", "-1") \
         .getOrCreate()
     
     try:

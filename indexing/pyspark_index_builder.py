@@ -48,102 +48,94 @@ logger = logging.getLogger(__name__)
 # PARTITION PROCESSING FUNCTION
 # ============================================================================
 
-def build_all_indices_per_partition(
+def build_single_index_per_partition(
     doc_partition: Iterator[Tuple[int, Row]],
+    index_type: str,
     use_stemming: bool = False
-) -> Iterator[Tuple[str, str, List[Tuple[int, int]]]]:
+) -> Iterator[Tuple[str, List[Tuple[int, int]]]]:
     """
-    Main worker function for mapPartitions.
-    Builds all three indices (body, title, anchor) in a single pass.
+    Worker function for mapPartitions - builds ONE index type only.
+    This is the SAFER approach that processes each index separately.
     
     Args:
         doc_partition: Iterator of (doc_id, row) tuples from the Parquet.
-        use_stemming: Whether to apply stemming (False for title/anchor per requirements).
+        index_type: Which index to build ('body', 'title', or 'anchor').
+        use_stemming: Whether to apply stemming (only for body).
         
     Yields:
-        (index_type, term, postings_list) tuples.
-        index_type is one of: 'body', 'title', 'anchor'
+        (term, postings_list) tuples for the specified index type.
     """
-    # Create three separate SPIMI builders with allocated memory limits
-    body_builder = create_body_builder(memory_mb=250)
-    title_builder = create_title_builder(memory_mb=100)
-    anchor_builder = create_anchor_builder(memory_mb=150)
+    # Create only ONE builder - saves memory!
+    if index_type == 'body':
+        builder = create_body_builder(memory_mb=400)  # More memory since only one index
+    elif index_type == 'title':
+        builder = create_title_builder(memory_mb=300)
+    else:  # anchor
+        builder = create_anchor_builder(memory_mb=350)
     
     docs_processed = 0
     
     for doc_id, row in doc_partition:
         try:
-            # ----------------------------------------------------------------
-            # Process BODY text
-            # ----------------------------------------------------------------
-            body_text = getattr(row, 'text', None) or ''
-            if body_text:
-                # Use stemming for body to improve recall
-                body_tokens = tokenize_and_process(body_text, use_stemming=use_stemming)
-                body_tf = Counter(body_tokens)
-                for term, tf in body_tf.items():
-                    body_builder.add_posting(term, doc_id, tf)
-            
-            # ----------------------------------------------------------------
-            # Process TITLE
-            # ----------------------------------------------------------------
-            title = getattr(row, 'title', None) or ''
-            if title:
-                # NO stemming for title search (per assignment requirements)
-                title_tokens = tokenize_no_stem(title)
-                title_tf = Counter(title_tokens)
-                for term, tf in title_tf.items():
-                    title_builder.add_posting(term, doc_id, tf)
-            
-            # ----------------------------------------------------------------
-            # Process ANCHOR texts
-            # ----------------------------------------------------------------
-            # Anchor text format may vary - handle both list and dict formats
-            anchor_text = getattr(row, 'anchor_text', None)
-            if anchor_text:
-                anchors_combined = []
-                
-                if isinstance(anchor_text, dict):
-                    # Format: {source_doc_id: "anchor text", ...}
-                    anchors_combined = list(anchor_text.values())
-                elif isinstance(anchor_text, (list, tuple)):
-                    anchors_combined = list(anchor_text)
-                elif isinstance(anchor_text, str):
-                    anchors_combined = [anchor_text]
-                
-                # Process all anchor texts for this document
-                for anchor in anchors_combined:
-                    if anchor:
-                        # NO stemming for anchor search
-                        anchor_tokens = tokenize_no_stem(str(anchor))
-                        anchor_tf = Counter(anchor_tokens)
-                        for term, tf in anchor_tf.items():
-                            anchor_builder.add_posting(term, doc_id, tf)
+            if index_type == 'body':
+                # ----------------------------------------------------------------
+                # Process BODY text
+                # ----------------------------------------------------------------
+                body_text = getattr(row, 'text', None) or ''
+                if body_text:
+                    body_tokens = tokenize_and_process(body_text, use_stemming=use_stemming)
+                    body_tf = Counter(body_tokens)
+                    for term, tf in body_tf.items():
+                        builder.add_posting(term, doc_id, tf)
+                        
+            elif index_type == 'title':
+                # ----------------------------------------------------------------
+                # Process TITLE
+                # ----------------------------------------------------------------
+                title = getattr(row, 'title', None) or ''
+                if title:
+                    title_tokens = tokenize_no_stem(title)
+                    title_tf = Counter(title_tokens)
+                    for term, tf in title_tf.items():
+                        builder.add_posting(term, doc_id, tf)
+                        
+            else:  # anchor
+                # ----------------------------------------------------------------
+                # Process ANCHOR texts
+                # ----------------------------------------------------------------
+                anchor_text = getattr(row, 'anchor_text', None)
+                if anchor_text:
+                    anchors_combined = []
+                    
+                    if isinstance(anchor_text, dict):
+                        anchors_combined = list(anchor_text.values())
+                    elif isinstance(anchor_text, (list, tuple)):
+                        anchors_combined = list(anchor_text)
+                    elif isinstance(anchor_text, str):
+                        anchors_combined = [anchor_text]
+                    
+                    for anchor in anchors_combined:
+                        if anchor:
+                            anchor_tokens = tokenize_no_stem(str(anchor))
+                            anchor_tf = Counter(anchor_tokens)
+                            for term, tf in anchor_tf.items():
+                                builder.add_posting(term, doc_id, tf)
             
             docs_processed += 1
             
-            # Log progress every 10000 docs
             if docs_processed % 10000 == 0:
-                logger.info(f"Partition processed {docs_processed} documents")
+                logger.info(f"[{index_type}] Partition processed {docs_processed} documents")
                 
         except Exception as e:
-            logger.warning(f"Error processing doc_id {doc_id}: {e}")
+            logger.warning(f"[{index_type}] Error processing doc_id {doc_id}: {e}")
             continue
     
-    logger.info(f"Partition complete: {docs_processed} documents processed")
+    logger.info(f"[{index_type}] Partition complete: {docs_processed} documents processed")
     
-    # Finalize each builder and yield results
-    logger.info("Finalizing body index...")
-    for term, postings in body_builder.finalize():
-        yield ('body', term, postings)
-    
-    logger.info("Finalizing title index...")
-    for term, postings in title_builder.finalize():
-        yield ('title', term, postings)
-    
-    logger.info("Finalizing anchor index...")
-    for term, postings in anchor_builder.finalize():
-        yield ('anchor', term, postings)
+    # Finalize and yield results
+    logger.info(f"Finalizing {index_type} index...")
+    for term, postings in builder.finalize():
+        yield (term, postings)
 
 
 # ============================================================================
@@ -224,6 +216,7 @@ def build_indices(
 ) -> Dict[str, str]:
     """
     Main function to build all three inverted indices.
+    SAFER APPROACH: Processes each index separately to avoid OOM.
     
     Args:
         spark: SparkSession instance.
@@ -236,53 +229,57 @@ def build_indices(
         Dictionary mapping index names to their .pkl file paths.
     """
     logger.info(f"Starting index build from {input_path}")
-    
-    # ========================================================================
-    # Step 1: Read the corpus
-    # ========================================================================
-    logger.info("Reading corpus from Parquet files...")
-    
-    docs_df = spark.read.parquet(input_path)
-    
-    # Convert to RDD of (doc_id, row)
-    # Assumes 'id' column contains doc_id
-    docs_rdd = docs_df.rdd.map(lambda row: (int(row.id), row))
-    
-    # Coalesce (not repartition) to target partitions - more efficient
-    current_partitions = docs_rdd.getNumPartitions()
-    if num_partitions and num_partitions != current_partitions:
-        if num_partitions < current_partitions:
-            docs_rdd = docs_rdd.coalesce(num_partitions)
-        else:
-            docs_rdd = docs_rdd.repartition(num_partitions)
-    
-    # Skip expensive count() - just log partitions
-    logger.info(f"Corpus ready with {docs_rdd.getNumPartitions()} partitions")
-    
-    # ========================================================================
-    # Step 2: Run SPIMI pipeline
-    # ========================================================================
-    logger.info("Running SPIMI mapPartitions...")
-    
-    # This produces RDD[(index_type, term, postings)]
-    all_indices_rdd = docs_rdd.mapPartitions(build_all_indices_per_partition)
-    
-    # Cache since we'll filter 3 times
-    all_indices_rdd.persist()
+    logger.info("Using SAFE mode: processing each index separately")
     
     index_paths = {}
     
     # ========================================================================
-    # Step 3: Process each index type
+    # Process each index type SEPARATELY (safer, avoids executor OOM)
     # ========================================================================
     for index_type in ['body', 'title', 'anchor']:
-        logger.info(f"Processing {index_type} index...")
+        logger.info(f"")
+        logger.info(f"{'='*60}")
+        logger.info(f"Starting {index_type.upper()} index")
+        logger.info(f"{'='*60}")
         
-        # Filter for this index type
-        index_rdd = (all_indices_rdd
-            .filter(lambda x: x[0] == index_type)
-            .map(lambda x: (x[1], x[2]))  # (term, postings)
-        )
+        # ====================================================================
+        # Step 1: Read the corpus fresh for each index
+        # ====================================================================
+        logger.info(f"[{index_type}] Reading corpus from Parquet files...")
+        
+        docs_df = spark.read.parquet(input_path)
+        
+        # Convert to RDD of (doc_id, row)
+        docs_rdd = docs_df.rdd.map(lambda row: (int(row.id), row))
+        
+        # Coalesce to target partitions
+        current_partitions = docs_rdd.getNumPartitions()
+        if num_partitions and num_partitions != current_partitions:
+            if num_partitions < current_partitions:
+                docs_rdd = docs_rdd.coalesce(num_partitions)
+            else:
+                docs_rdd = docs_rdd.repartition(num_partitions)
+        
+        logger.info(f"[{index_type}] Corpus ready with {docs_rdd.getNumPartitions()} partitions")
+        
+        # ====================================================================
+        # Step 2: Build single index using SPIMI
+        # ====================================================================
+        logger.info(f"[{index_type}] Running SPIMI mapPartitions...")
+        
+        # IMPORTANT: Use default argument to capture index_type by VALUE, not reference!
+        # This avoids the closure bug where all partitions would use the last index_type
+        def make_partition_builder(idx_type):
+            """Factory function to properly capture index_type in closure."""
+            return lambda it: build_single_index_per_partition(it, idx_type)
+        
+        # Build only THIS index (saves executor memory!)
+        index_rdd = docs_rdd.mapPartitions(make_partition_builder(index_type))
+        
+        # ====================================================================
+        # Step 3: Merge postings and sort
+        # ====================================================================
+        logger.info(f"[{index_type}] Merging postings by term...")
         
         # Merge postings from different partitions
         merged_rdd = index_rdd.reduceByKey(lambda a, b: a + b)
@@ -290,44 +287,64 @@ def build_indices(
         # Sort postings by doc_id within each term
         sorted_rdd = merged_rdd.mapValues(lambda pl: sorted(pl, key=lambda x: x[0]))
         
-        # Write posting lists to binary files
+        # ====================================================================
+        # Step 4: Write posting lists to GCS
+        # ====================================================================
         output_dir = f"{output_path}/{index_type}_index"
+        logger.info(f"[{index_type}] Writing posting lists to {output_dir}...")
         
-        def write_partition(partition_idx_and_data):
-            """Wrapper for partition writing."""
-            partition_idx, data = partition_idx_and_data
-            return write_postings_partition(
-                partition_idx, iter(data), output_path, index_type, bucket_name
-            )
+        # Factory to capture index_type by value for the write function
+        def make_partition_writer(idx_type, out_path, bkt_name):
+            """Factory function to properly capture values in closure."""
+            return lambda idx, it: write_partition_with_index(idx, it, out_path, idx_type, bkt_name)
         
-        # Collect metadata from writing
-        # Using mapPartitionsWithIndex for partition-aware writing
+        # Write partitions - metadata goes to GCS pickle files
         metadata_rdd = sorted_rdd.mapPartitionsWithIndex(
-            lambda idx, it: write_partition_with_index(idx, it, output_path, index_type, bucket_name)
+            make_partition_writer(index_type, output_path, bucket_name)
         )
         
-        # Collect all metadata
-        all_metadata = metadata_rdd.collect()
+        # Collect just the counts (tiny! won't cause OOM)
+        partition_counts = metadata_rdd.collect()
+        total_terms = sum(count for _, count in partition_counts)
+        logger.info(f"[{index_type}] Wrote {total_terms} terms across {len(partition_counts)} partitions")
         
-        # Build final InvertedIndex
-        index = InvertedIndex()
+        # ====================================================================
+        # Step 5: Merge partition metadata
+        # ====================================================================
+        logger.info(f"[{index_type}] Merging partition metadata...")
+        index = merge_partition_metadata(output_dir, index_type, bucket_name, num_partitions)
         
-        for term, locs, df, term_total in all_metadata:
-            index.posting_locs[term] = locs
-            index.df[term] = df
-            index.term_total[term] = term_total
-        
-        # Write the index pickle file
+        # Write the final index pickle file
         index_pkl_path = f"{output_dir}/{index_type}_index.pkl"
         index._write_globals(output_dir, f"{index_type}_index", bucket_name)
         
         index_paths[index_type] = index_pkl_path
-        logger.info(f"Completed {index_type} index: {len(index.df)} terms")
+        logger.info(f"[{index_type}] COMPLETED: {len(index.df)} unique terms")
+        
+        # ====================================================================
+        # Step 6: Clean up before next index (CRITICAL for memory!)
+        # ====================================================================
+        logger.info(f"[{index_type}] Cleaning up...")
+        del index
+        del docs_df
+        del docs_rdd
+        del index_rdd
+        del merged_rdd
+        del sorted_rdd
+        del metadata_rdd
+        
+        import gc
+        gc.collect()
+        
+        # Force Spark to release cached data
+        spark.catalog.clearCache()
+        
+        logger.info(f"[{index_type}] Memory released, ready for next index")
     
-    # Unpersist cached RDD
-    all_indices_rdd.unpersist()
-    
-    logger.info("All indices built successfully!")
+    logger.info("")
+    logger.info("="*60)
+    logger.info("ALL INDICES BUILT SUCCESSFULLY!")
+    logger.info("="*60)
     return index_paths
 
 
@@ -340,6 +357,7 @@ def write_partition_with_index(
 ) -> Iterator[Tuple[str, List, int, int]]:
     """
     Write partition data with partition index for unique filenames.
+    Also writes partition metadata to a separate pickle file in GCS.
     
     Args:
         partition_idx: Spark partition index.
@@ -349,13 +367,17 @@ def write_partition_with_index(
         bucket_name: GCS bucket name.
         
     Yields:
-        Metadata tuples for each term written.
+        Just a count of terms written (not all metadata!).
     """
-    from inverted_index_gcp import MultiFileWriter, TUPLE_SIZE, TF_MASK
+    from inverted_index_gcp import MultiFileWriter, TUPLE_SIZE, TF_MASK, _make_path, _open, get_bucket
     from contextlib import closing
+    import pickle
     
     output_dir = f"{output_path}/{index_type}_index"
     writer_name = f"{index_type}_{partition_idx:04d}"
+    
+    # Collect metadata for this partition
+    partition_metadata = []
     
     try:
         with closing(MultiFileWriter(output_dir, writer_name, bucket_name)) as writer:
@@ -372,11 +394,74 @@ def write_partition_with_index(
                 ])
                 
                 locs = writer.write(b)
-                yield (term, locs, df, term_total)
+                partition_metadata.append((term, locs, df, term_total))
+        
+        # Write partition metadata to GCS (this is the key fix!)
+        if partition_metadata:
+            metadata_path = _make_path(output_dir, f'metadata_{partition_idx:04d}.pkl', is_gcs=True)
+            bucket = get_bucket(bucket_name)
+            with _open(metadata_path, 'wb', bucket) as f:
+                pickle.dump(partition_metadata, f)
+        
+        # Return just the count (tiny! won't cause OOM)
+        yield (partition_idx, len(partition_metadata))
                 
     except Exception as e:
         logger.error(f"Error writing partition {partition_idx}: {e}")
         raise
+
+
+def merge_partition_metadata(output_dir: str, index_type: str, bucket_name: str, num_partitions: int) -> 'InvertedIndex':
+    """
+    Merge partition metadata files into a single InvertedIndex.
+    Reads one partition at a time to avoid OOM.
+    
+    Args:
+        output_dir: Base output directory for the index.
+        index_type: Type of index (body/title/anchor).
+        bucket_name: GCS bucket name.
+        num_partitions: Number of partitions to merge.
+        
+    Returns:
+        Merged InvertedIndex with all term metadata.
+    """
+    from inverted_index_gcp import InvertedIndex, _make_path, _open, get_bucket
+    import pickle
+    import gc
+    
+    index = InvertedIndex()
+    bucket = get_bucket(bucket_name)
+    
+    for i in range(num_partitions):
+        metadata_path = _make_path(output_dir, f'metadata_{i:04d}.pkl', is_gcs=True)
+        
+        try:
+            with _open(metadata_path, 'rb', bucket) as f:
+                partition_metadata = pickle.load(f)
+            
+            # Merge into main index
+            for term, locs, df, term_total in partition_metadata:
+                if term in index.posting_locs:
+                    index.posting_locs[term].extend(locs)
+                    index.df[term] += df
+                    index.term_total[term] += term_total
+                else:
+                    index.posting_locs[term] = locs
+                    index.df[term] = df
+                    index.term_total[term] = term_total
+            
+            # Free memory from this partition
+            del partition_metadata
+            
+            if i % 20 == 0:
+                logger.info(f"  Merged partition {i}/{num_partitions}")
+                gc.collect()
+                
+        except Exception as e:
+            logger.warning(f"Could not read metadata partition {i}: {e}")
+            continue
+    
+    return index
 
 
 def main():

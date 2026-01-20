@@ -122,6 +122,9 @@ deps.zip
 data/
 corpus/
 
+# Test indices (large files)
+test_indices/
+
 # Temporary files
 tmp/
 temp/

@@ -76,6 +76,23 @@ class GCSBinaryReader:
             self._pos += len(result)
         return result
     
+    def readline(self, limit=-1):
+        """Read until newline or end of data. Required for pickle.load()."""
+        start = self._pos
+        idx = self._data.find(b'\n', start)
+        if idx == -1:
+            # No newline found, read to end
+            result = self._data[start:]
+            self._pos = len(self._data)
+        else:
+            # Include the newline
+            result = self._data[start:idx + 1]
+            self._pos = idx + 1
+        if limit > 0 and len(result) > limit:
+            result = result[:limit]
+            self._pos = start + limit
+        return result
+    
     def seek(self, pos):
         self._pos = pos
         return self._pos
@@ -97,6 +114,16 @@ class GCSBinaryReader:
 def _open(path, mode, bucket=None):
     if bucket is None:
         return open(path, mode)
+    
+    # If path is a full GCS URI (gs://bucket_name/...), extract just the blob path
+    if path.startswith('gs://'):
+        # Extract blob path: gs://bucket_name/path/to/file -> path/to/file
+        parts = path[5:].split('/', 1)  # Remove 'gs://' and split on first /
+        if len(parts) > 1:
+            path = parts[1]  # Get everything after bucket name
+        else:
+            path = ''
+    
     # Use wrapper classes for GCS compatibility
     if 'w' in mode:
         return GCSBinaryWriter(bucket, path)
@@ -167,11 +194,19 @@ class MultiFileReader:
     def read(self, locs, n_bytes):
         b = []
         for f_name, offset in locs:
-            # f_name might be a full path or just filename - handle both
-            if f_name.startswith('gs://') or f_name.startswith(self._base_dir):
+            # f_name might be a full GCS path (gs://...) or relative path
+            if f_name.startswith('gs://'):
+                # Already a full GCS path - use as-is
                 full_path = f_name
-            else:
+            elif self._is_gcs:
+                # Relative path, need to construct GCS path
                 full_path = _make_path(self._base_dir, f_name, self._is_gcs)
+            else:
+                # Local path
+                if f_name.startswith(self._base_dir):
+                    full_path = f_name
+                else:
+                    full_path = _make_path(self._base_dir, f_name, self._is_gcs)
             
             if full_path not in self._open_files:
                 self._open_files[full_path] = _open(full_path, 'rb', self._bucket)

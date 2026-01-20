@@ -114,9 +114,15 @@ Flask-based REST API implementing 6 endpoints:
 | `/get_pageview` | POST | Returns pageview counts for doc IDs |
 
 **Ranking Methods:**
-1. **TF-IDF Cosine Similarity**: Log-weighted TF with IDF, normalized by document length
-2. **Binary Ranking**: Counts distinct query terms matching in title/anchor
-3. **Combined Search**: Weighted combination of TF-IDF, PageRank, and PageView
+1. **BM25**: Body text scoring with term frequency saturation and length normalization (k1=1.5, b=0.75)
+2. **In-Memory Title Search**: Query terms matched directly against 6.3M doc_titles in RAM (no GCS fetch)
+3. **Binary Anchor Ranking**: Counts distinct query terms in anchor text
+4. **Combined Search**: Weighted combination of all signals:
+   - Body BM25: 0.45
+   - Title match: 0.35
+   - Anchor match: 0.10
+   - PageRank: 0.07
+   - PageView: 0.03
 
 ### 3. Evaluation (`tests/`)
 
@@ -179,8 +185,10 @@ Open `frontend/run_frontend_in_colab.ipynb` and follow the instructions.
 
 ## Authors
 
-- Student ID: 207916263
-- GitHub: https://github.com/RotemAzriel/wikipedia-search-engine
+- Rotem Azriel - 207916263 - rotemazr@post.bgu.ac.il
+- Tomer Filo - 206969750 - filot@post.bgu.ac.il
+
+**GitHub:** https://github.com/RotemAzriel/wikipedia-search-engine
 
 ## License
 

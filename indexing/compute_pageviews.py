@@ -284,15 +284,21 @@ def save_pageview_dict(
     
     # Save to file
     if bucket_name:
-        # Save to GCS
+        # Save to GCS using upload_from_file for compatibility
         from google.cloud import storage
+        import io
         
         client = storage.Client()
         bucket = client.bucket(bucket_name)
         blob = bucket.blob(output_path)
         
-        with blob.open('wb') as f:
-            pickle.dump(pageview_dict, f)
+        # Serialize to bytes buffer first
+        buffer = io.BytesIO()
+        pickle.dump(pageview_dict, buffer)
+        buffer.seek(0)
+        
+        # Upload from buffer
+        blob.upload_from_file(buffer, content_type='application/octet-stream')
         
         logger.info(f"Saved pageviews to gs://{bucket_name}/{output_path}")
     else:
@@ -327,11 +333,13 @@ def main():
     else:
         parser.error("Either --input or --download must be specified")
     
-    # Initialize Spark
+    # Initialize Spark with optimized memory settings
     spark = SparkSession.builder \
         .appName("WikipediaPageViews") \
-        .config("spark.executor.memory", "4g") \
-        .config("spark.driver.memory", "4g") \
+        .config("spark.executor.memory", "8g") \
+        .config("spark.driver.memory", "10g") \
+        .config("spark.executor.memoryOverhead", "2g") \
+        .config("spark.driver.memoryOverhead", "2g") \
         .config("spark.default.parallelism", str(args.partitions)) \
         .getOrCreate()
     

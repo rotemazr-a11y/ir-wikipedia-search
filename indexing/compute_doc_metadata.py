@@ -133,6 +133,7 @@ def save_dict_to_gcs(data: Dict, filename: str, bucket_name: str):
         bucket_name: GCS bucket name.
     """
     from google.cloud import storage
+    import io
     
     logger.info(f"Saving {filename} to gs://{bucket_name}/{filename}")
     
@@ -140,8 +141,11 @@ def save_dict_to_gcs(data: Dict, filename: str, bucket_name: str):
     bucket = client.bucket(bucket_name)
     blob = bucket.blob(filename)
     
-    with blob.open('wb') as f:
-        pickle.dump(data, f)
+    # Use upload_from_file for compatibility with older GCS library
+    buffer = io.BytesIO()
+    pickle.dump(data, buffer)
+    buffer.seek(0)
+    blob.upload_from_file(buffer, content_type='application/octet-stream')
     
     logger.info(f"Saved {len(data)} entries to gs://{bucket_name}/{filename}")
 
@@ -158,9 +162,10 @@ def main():
     # Initialize Spark
     spark = SparkSession.builder \
         .appName("WikipediaDocMetadata") \
-        .config("spark.executor.memory", "4g") \
-        .config("spark.driver.memory", "8g") \
-        .config("spark.sql.shuffle.partitions", "100") \
+        .config("spark.executor.memory", "8g") \
+        .config("spark.driver.memory", "12g") \
+        .config("spark.executor.memoryOverhead", "2g") \
+        .config("spark.sql.shuffle.partitions", "200") \
         .getOrCreate()
     
     try:
